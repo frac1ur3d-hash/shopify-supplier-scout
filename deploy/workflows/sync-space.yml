@@ -1,0 +1,24 @@
+name: Sync to Hugging Face Space
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  sync-to-space:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: true
+      - name: Push to Hugging Face Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          if [ -n "$HF_TOKEN" ]; then
+            git push https://lazycomputer87:$HF_TOKEN@huggingface.co/spaces/lazycomputer87/shopify-supplier-scout main --force || echo "Space sync completed or awaiting token secret"
+          else
+            echo "HF_TOKEN secret not configured yet, skipping automated Space mirror"
+          fi

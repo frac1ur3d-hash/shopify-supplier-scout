@@ -1,0 +1,34 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "48514327efe4dc47e0ba918917aef477"
+name = "Shopify Supplier Scout"
+handle = "shopify-supplier-scout"
+application_url = "https://localhost:3000"
+embedded = true
+
+[build]
+automatically_update_urls_on_dev = true
+dev_store_url = "pjy6kz-0i.myshopify.com"
+
+[access_scopes]
+scopes = "read_products,write_products,read_orders,write_orders,read_fulfillments,write_fulfillments,read_inventory,write_inventory,read_locations"
+
+[webhooks]
+api_version = "2026-07"
+
+  [[webhooks.subscriptions]]
+  topics = [ "orders/paid" ]
+  uri = "/api/webhooks/orders-paid"
+
+  [[webhooks.subscriptions]]
+  topics = [ "products/update" ]
+  uri = "/api/webhooks/products-update"
+
+[auth]
+redirect_urls = [
+  "https://localhost:3000/auth/callback",
+  "https://localhost:3000/auth/shopify/callback"
+]
+
+[pos]
+embedded = false
