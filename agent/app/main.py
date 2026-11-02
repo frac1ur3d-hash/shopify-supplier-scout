@@ -13,6 +13,9 @@ from .catalog_injector import CatalogInjector
 from .order_dispatcher import OrderDispatcher
 from .suppliers import get_all_supplier_adapters
 from .suppliers.base import SupplierProduct
+from .suppliers.supplier_directory import SupplierDirectoryHunter
+
+supplier_directory_hunter = SupplierDirectoryHunter()
 
 app = FastAPI(
     title="Shopify Supplier Scout Agent API",
@@ -86,7 +89,25 @@ async def analyze_store():
     result = await store_analyzer.fetch_store_catalog(limit=50)
     return result
 
-@app.get("/api/suppliers/scout")
+@app.get("/api/suppliers/companies")
+async def get_supplier_companies(
+    niche: Optional[str] = Query(None, description="Analyzed store niche")
+):
+    """
+    Finds verified supplier companies, direct factories, and domestic dropship partners
+    specializing in the merchant's analyzed store category.
+    """
+    search_niche = niche
+    if not search_niche:
+        analysis = await store_analyzer.fetch_store_catalog(limit=20)
+        search_niche = analysis.get("primary_niche", "Gnome & Decor")
+
+    companies = supplier_directory_hunter.hunt_suppliers_for_niche(search_niche)
+    return {
+        "analyzed_niche": search_niche,
+        "total_suppliers_found": len(companies),
+        "suppliers": [c.model_dump() for c in companies]
+    }
 async def scout_suppliers(
     query: Optional[str] = Query(None, description="Custom niche search query"),
     multiplier: Optional[float] = Query(None, description="Price multiplier override"),
