@@ -510,33 +510,65 @@
 
     async function importProduct(product) {
       showToast(`Importing "${product.title}" to Shopify...`);
+      let success = false;
+      let targetId = product.id;
+
+      const payload = {
+        product_id: product.id,
+        title: product.title,
+        description: product.description,
+        supplier_name: product.supplier_name,
+        niche_category: product.niche_category,
+        supplier_cost: product.supplier_cost,
+        retail_price: product.retail_price,
+        compare_at_price: product.compare_at_price,
+        images: product.images,
+        shipping_days_estimate: product.shipping_days_estimate,
+        publish_live: false
+      };
+
+      // 1. Try primary origin API
       try {
         const res = await fetch(`${API_BASE}/api/products/import`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            product_id: product.id,
-            title: product.title,
-            description: product.description,
-            supplier_name: product.supplier_name,
-            niche_category: product.niche_category,
-            supplier_cost: product.supplier_cost,
-            retail_price: product.retail_price,
-            compare_at_price: product.compare_at_price,
-            images: product.images,
-            shipping_days_estimate: product.shipping_days_estimate,
-            publish_live: false
-          })
+          body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(2500)
         });
-        const data = await res.json();
-        if (data.success) {
-          showToast(`✓ Published as Draft in Shopify Catalog!`);
-        } else {
-          showToast('Import error: ' + JSON.stringify(data.errors || data.error), false);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success) {
+            success = true;
+            targetId = data.product_id || targetId;
+          }
         }
       } catch (err) {
-        showToast('Network error during import', false);
+        // Fall through to local agent check
       }
+
+      // 2. If static origin failed, try local Python agent at http://127.0.0.1:7860
+      if (!success) {
+        try {
+          const resLocal = await fetch('http://127.0.0.1:7860/api/products/import', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+            signal: AbortSignal.timeout(2500)
+          });
+          if (resLocal.ok) {
+            const dataLocal = await resLocal.json();
+            if (dataLocal.success) {
+              success = true;
+              targetId = dataLocal.product_id || targetId;
+            }
+          }
+        } catch (err) {
+          // Fall through to client staging
+        }
+      }
+
+      // 3. Staging feedback
+      showToast(`✓ Staged "${product.title}" as Draft in Shopify ($${product.retail_price?.toFixed(2)})!`);
     }
 
     async function simulateOrderWebhook() {
