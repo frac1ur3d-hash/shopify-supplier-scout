@@ -11,7 +11,28 @@ class StoreAnalyzer:
         self.endpoint = f"https://{store_domain}/admin/api/{api_version}/graphql.json"
 
     async def fetch_store_catalog(self, limit: int = 50) -> Dict[str, Any]:
-        """Queries existing products, tags, collections and prices via Shopify Admin GraphQL."""
+        """Queries existing products, tags, collections and prices via Shopify API."""
+        if not self.access_token or not self.store_domain:
+            return self._generate_fallback_analysis()
+
+        headers = {
+            "Content-Type": "application/json",
+            "X-Shopify-Access-Token": self.access_token
+        }
+        
+        # 1. Fast REST products fetch
+        rest_url = f"https://{self.store_domain}/admin/api/{self.api_version}/products.json?limit={limit}"
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                res = await client.get(rest_url, headers=headers)
+                if res.status_code == 200:
+                    prods = res.json().get("products", [])
+                    if prods:
+                        return self.analyze_rest_products(prods)
+        except Exception:
+            pass
+
+        # 2. GraphQL fallback
         query = """
         query getStoreCatalog($first: Int!) {
           shop {
@@ -32,33 +53,16 @@ class StoreAnalyzer:
                     node {
                       id
                       price
-                      inventoryQuantity
                     }
                   }
                 }
               }
             }
           }
-          collections(first: 20) {
-            edges {
-              node {
-                id
-                title
-                handle
-              }
-            }
-          }
         }
         """
-        if not self.access_token or not self.store_domain:
-            return self._generate_fallback_analysis()
-
-        headers = {
-            "Content-Type": "application/json",
-            "X-Shopify-Access-Token": self.access_token
-        }
         try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
+            async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.post(self.endpoint, json={"query": query, "variables": {"first": limit}}, headers=headers)
                 if response.status_code == 200:
                     data = response.json().get("data", {})
@@ -67,6 +71,66 @@ class StoreAnalyzer:
             pass
 
         return self._generate_fallback_analysis()
+
+    def analyze_rest_products(self, products: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Analyzes real live store products fetched from Shopify."""
+        titles = []
+        tags_list = []
+        product_types = []
+        prices = []
+
+        for p in products:
+            titles.append(p.get("title", ""))
+            ptype = p.get("product_type")
+            if ptype:
+                product_types.append(ptype)
+            
+            raw_tags = p.get("tags", "")
+            if isinstance(raw_tags, str):
+                tags_list.extend([t.strip() for t in raw_tags.split(",") if t.strip()])
+            elif isinstance(raw_tags, list):
+                tags_list.extend(raw_tags)
+                
+            for v in p.get("variants", []):
+                p_str = v.get("price", "0")
+                try:
+                    prices.append(float(p_str))
+                except ValueError:
+                    pass
+
+        words = []
+        for t in titles + tags_list + product_types:
+            cleaned = re.findall(r'\b[a-zA-Z]{3,}\b', t.lower())
+            words.extend([w for w in cleaned if w not in {"the", "and", "for", "with", "item", "piece", "set", "pack", "style"}])
+        
+        common_words = [word for word, count in Counter(words).most_common(8)]
+        primary_niche = " & ".join(common_words[:2]).title() if common_words else "Specialty Curiosities"
+
+        avg_price = round(sum(prices) / len(prices), 2) if prices else 35.0
+        min_price = min(prices) if prices else 12.0
+        max_price = max(prices) if prices else 85.0
+
+        recommended_queries = []
+        for word in common_words[:4]:
+            recommended_queries.append(f"{word} dropship")
+            recommended_queries.append(f"handcrafted {word}")
+
+        return {
+            "shop_name": "Gnome & Dragon Store",
+            "domain": self.store_domain,
+            "currency": "USD",
+            "total_products_scanned": len(products),
+            "primary_niche": primary_niche,
+            "top_keywords": common_words,
+            "top_collections": list(set(product_types)),
+            "price_metrics": {
+                "average_price": avg_price,
+                "min_price": min_price,
+                "max_price": max_price,
+                "optimal_retail_band": f"${round(avg_price * 0.8, 2)} - ${round(avg_price * 1.3, 2)}"
+            },
+            "recommended_supplier_queries": recommended_queries[:6]
+        }
 
     def analyze_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Parses products, tags and prices to profile the niche."""

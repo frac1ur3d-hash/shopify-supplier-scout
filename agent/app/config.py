@@ -1,4 +1,5 @@
 import os
+import json
 from pathlib import Path
 from pydantic import BaseModel
 
@@ -16,10 +17,25 @@ except ImportError:
                     k, v = line.split("=", 1)
                     os.environ.setdefault(k.strip(), v.strip())
 
+def get_dynamic_shopify_token() -> str:
+    """Retrieves active or renewed Shopify access token automatically from env or cache."""
+    # Check if shopify_auth has a valid cached token
+    auth_cache = Path(r"C:\Users\N0N3Follows\.gemini\antigravity\scratch\shopify_auth\.token_cache.json")
+    if auth_cache.exists():
+        try:
+            with open(auth_cache, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                tok = data.get("access_token")
+                if tok:
+                    return tok
+        except Exception:
+            pass
+    return os.getenv("SHOPIFY_ACCESS_TOKEN", "")
+
 class AppSettings(BaseModel):
     shopify_store_domain: str = os.getenv("SHOPIFY_STORE_DOMAIN", "pjy6kz-0i.myshopify.com")
-    shopify_access_token: str = os.getenv("SHOPIFY_ACCESS_TOKEN", "")
-    shopify_api_version: str = os.getenv("SHOPIFY_API_VERSION", "2026-07")
+    shopify_access_token: str = get_dynamic_shopify_token()
+    shopify_api_version: str = os.getenv("SHOPIFY_API_VERSION", "2024-10")
     
     # Supplier API Credentials (Free accounts / optional)
     cj_api_key: str = os.getenv("CJ_API_KEY", "")
